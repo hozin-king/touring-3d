@@ -104,6 +104,7 @@ class GameView(
         scene = engine.createScene()
         view = engine.createView()
         val camEntity = EntityManager.get().create()
+        engine.transformManager.create(camEntity)
         camera = engine.createCamera(camEntity)
         view.camera = camera
         view.scene = scene
@@ -272,6 +273,7 @@ class GameView(
             )
         )
         val e = EntityManager.get().create()
+        engine.transformManager.create(e)
         RenderableManager.Builder(1)
             .boundingBox(com.google.android.filament.Box(0f, 0f, 0f, 10f, 10f, 10f))
             .geometry(0, RenderableManager.PrimitiveType.TRIANGLES, vb, ib)

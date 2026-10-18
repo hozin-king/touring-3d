@@ -182,6 +182,7 @@ class MeshBuilder {
         ib.setBuffer(engine, idata)
 
         val e = EntityManager.get().create()
+        engine.transformManager.create(e)
         RenderableManager.Builder(1)
             .boundingBox(Box(0f, 0f, 0f, 900f, 120f, 900f))
             .geometry(0, RenderableManager.PrimitiveType.TRIANGLES, vb, ib)
