@@ -1,0 +1,19 @@
+material {
+    name : unlit_vcolor,
+    shadingModel : unlit,
+    blending : opaque,
+    culling : none,
+    requires : [ color ]
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+    }
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor.rgb *= getColor().rgb;
+    }
+}

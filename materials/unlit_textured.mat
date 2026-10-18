@@ -1,0 +1,22 @@
+material {
+    name : unlit_textured,
+    shadingModel : unlit,
+    blending : opaque,
+    culling : none,
+    parameters : [
+        { type : sampler2d, name : albedoTex }
+    ],
+    requires : [ uv0 ]
+}
+
+vertex {
+    void materialVertex(inout MaterialVertexInputs material) {
+    }
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        material.baseColor = texture(materialParams_albedoTex, getUV0()).rgba;
+    }
+}
