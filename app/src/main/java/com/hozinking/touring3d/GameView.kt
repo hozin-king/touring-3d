@@ -41,6 +41,14 @@ class GameView(
     private val context: Context,
     private val surfaceView: SurfaceView
 ) {
+    companion object {
+        init {
+            // WAJIB: muat native lib Filament sebelum Engine.create() dipanggil,
+            // kalau tidak UnsatisfiedLinkError: No implementation found for Engine.nCreateBuilder
+            System.loadLibrary("filament-jni")
+        }
+    }
+
     enum class State { MENU, COUNTDOWN, RIDING, FINISHED }
 
     var state = State.MENU
