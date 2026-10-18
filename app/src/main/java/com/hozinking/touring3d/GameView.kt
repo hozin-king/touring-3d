@@ -302,7 +302,7 @@ class GameView(
                 orbitA += dt * 0.08f
                 val ex = cos(orbitA) * 170f
                 val ez = sin(orbitA) * 170f
-                camera.lookAt(ex, 70.0, ez, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+                camera.lookAt(ex.toDouble(), 70.0, ez.toDouble(), 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
             }
             State.COUNTDOWN -> {
                 countdownT += dt
