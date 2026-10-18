@@ -289,7 +289,7 @@ class GameView(
             lastNanos = frameTimeNanos
             update(dt)
             val sc = swapChain
-            if (sc != null && renderer.beginFrame(sc)) {
+            if (sc != null && renderer.beginFrame(sc, frameTimeNanos)) {
                 renderer.render(view)
                 renderer.endFrame()
             }
