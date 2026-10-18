@@ -84,6 +84,7 @@ class GameView(
 
     private var rideTime = 0f
     private var countdownT = 0f
+    private var lastCountdownLabel = ""
     private var orbitA = 0f
     private var camX = 0f
     private var camZ = 0f
@@ -151,7 +152,8 @@ class GameView(
 
             override fun onResized(width: Int, height: Int) {
                 val aspect = width.toDouble() / height.toDouble()
-                camera.setProjection(45.0, aspect, 0.1, 900.0, Camera.Fov.VERTICAL)
+                // far 1600: laut (±800) tak terpotong saat kamera menu mengorbit
+                camera.setProjection(45.0, aspect, 0.1, 1600.0, Camera.Fov.VERTICAL)
                 view.viewport = Viewport(0, 0, width, height)
             }
         }
@@ -192,6 +194,8 @@ class GameView(
             scene.addEntity(
                 buildBoard(8f, 2.6f, s.x, 5.2f, s.z, Math.toDegrees(ang.toDouble()).toFloat(), tex)
             )
+            // tiang papan = objek padat, jangan bisa ditembus motor
+            world.addCollider(s.x, s.z, 0.8f)
         }
     }
 
@@ -264,8 +268,10 @@ class GameView(
         ib.setBuffer(engine, idata)
 
         val mi: MaterialInstance = matTextured.createInstance()
+        // Nama parameter sampler di material = "albedoTex" (bukan "map");
+        // nama yang salah diabaikan diam-diam Filament sehingga papan jadi tanpa tekstur.
         mi.setParameter(
-            "map", tex,
+            "albedoTex", tex,
             TextureSampler(
                 TextureSampler.MinFilter.LINEAR,
                 TextureSampler.MagFilter.LINEAR,
@@ -322,10 +328,15 @@ class GameView(
                     countdownT < 3f -> "1"
                     else -> "GAS!"
                 }
-                onCountdown?.invoke(label)
+                // update teks hanya saat berubah (jangan 60x/detik)
+                if (label != lastCountdownLabel) {
+                    lastCountdownLabel = label
+                    onCountdown?.invoke(label)
+                }
                 updateCamera(dt)
                 if (countdownT >= 3.4f) {
                     state = State.RIDING
+                    lastCountdownLabel = ""
                     onCountdown?.invoke("")
                 }
             }
@@ -417,6 +428,7 @@ class GameView(
         camZ = world.startZ - cos(world.startHeading) * 8f
         rideTime = 0f
         countdownT = 0f
+        lastCountdownLabel = ""
         state = State.COUNTDOWN
         onHud?.invoke(0, fmtTime(0f), 0, 3)
     }

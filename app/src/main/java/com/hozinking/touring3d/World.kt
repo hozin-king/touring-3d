@@ -28,7 +28,7 @@ class World {
 
     val colliders = ArrayList<Collider>()
 
-    private fun addCollider(x: Float, z: Float, r: Float) {
+    fun addCollider(x: Float, z: Float, r: Float) {
         colliders.add(Collider(x, z, r))
     }
 
@@ -146,7 +146,9 @@ class World {
             m.box(sx, 5.4f, sz, 15f, 0.8f, 11f, 0.85f, 0.2f, 0.2f)   // atap merah
             m.box(sx, 4.9f, sz, 15.2f, 0.3f, 11.2f, 0.95f, 0.95f, 0.95f) // lis putih
             m.box(sx + 10f, 1.5f, sz + 8f, 6f, 3f, 5f, 0.92f, 0.9f, 0.85f) // kantor
-            addCollider(sx, sz, 9f)
+            // Collider 7.5 (bukan 9): radius deteksi spot = 9, collider 9 bikin
+            // motor tertahan di jarak 10 > 9 sehingga spot POM tak pernah tercapai.
+            addCollider(sx, sz, 7.5f)
             addCollider(sx + 10f, sz + 8f, 5f)
         }
         // ---- WARUNG (-56, 97): bangunan + tenda garis ----
