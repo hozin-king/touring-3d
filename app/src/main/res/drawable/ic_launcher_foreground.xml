@@ -31,7 +31,6 @@
         android:strokeColor="#E2703A"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
-        android:strokeDashArray="7,6"
         android:fillColor="#00000000"
         android:pathData="M-6,92 C22,84 30,100 54,94 C78,88 84,76 114,84" />
 
