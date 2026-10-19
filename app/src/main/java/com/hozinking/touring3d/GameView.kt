@@ -134,7 +134,7 @@ class GameView(
             scene.addEntity(ringEntities[i])
         }
 
-        buildSigns()
+        buildSignsSafe()
 
         camX = world.startX - sin(world.startHeading) * 8f
         camZ = world.startZ - cos(world.startHeading) * 8f
@@ -171,6 +171,15 @@ class GameView(
             buf.put(bytes)
             buf.flip()
             return Material.Builder().payload(buf, buf.remaining()).build(engine)
+        }
+    }
+
+    /** Papan nama: texture bisa gagal di sebagian driver — jangan sampai bikin crash. */
+    private fun buildSignsSafe() {
+        try {
+            buildSigns()
+        } catch (t: Throwable) {
+            android.util.Log.e("Touring3D", "buildSigns gagal, dilewati", t)
         }
     }
 
