@@ -294,6 +294,13 @@ class GameView(
         return e
     }
 
+    /** setTransform butuh EntityInstance; lewati bila instance 0 agar tak SIGSEGV. */
+    private fun setT(e: Int, m: FloatArray) {
+        val tm = engine.transformManager
+        val inst = tm.getInstance(e)
+        if (inst != 0) tm.setTransform(inst, m)
+    }
+
     // ------------------------------------------------------------------ loop
 
     private val frameCallback = object : Choreographer.FrameCallback {
@@ -354,8 +361,7 @@ class GameView(
         }
         // transform motor selalu di-update
         if (bikeEntityCached != 0) {
-            val tm = engine.transformManager
-            tm.setTransform(tm.getInstance(bikeEntityCached), bike.writeMatrix())
+            setT(bikeEntityCached, bike.writeMatrix())
         }
     }
 

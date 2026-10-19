@@ -34,6 +34,9 @@ class MainActivity : AppCompatActivity() {
         val finishPanel = findViewById<LinearLayout>(R.id.finish_panel)
         val bestLabel = findViewById<TextView>(R.id.best_label)
 
+        findViewById<TextView>(R.id.tv_version).text =
+            "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+
         game = GameView(this, findViewById(R.id.filament_view))
 
         game.onHud = { kmh, time, visited, total ->
@@ -96,7 +99,16 @@ class MainActivity : AppCompatActivity() {
             game.backToMenu()
         }
 
-        game.start()
+        // Init Filament + dunia itu berat: tunda sampai loading overlay kegambar
+        // agar tidak ANR dan user tahu app sedang bekerja.
+        findViewById<View>(R.id.filament_view).post {
+            try {
+                game.start()
+            } catch (t: Throwable) {
+                android.util.Log.e("Touring3D", "Gagal init game", t)
+            }
+            findViewById<View>(R.id.loading_overlay).visibility = View.GONE
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

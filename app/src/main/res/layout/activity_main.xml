@@ -158,6 +158,14 @@
             android:layout_marginTop="8dp"
             android:text="TIME TRIAL"
             android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/tv_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/hud_text"
+            android:textSize="11sp" />
     </LinearLayout>
 
     <!-- Panel selesai -->
@@ -204,5 +212,27 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="MAIN LAGI" />
+    </LinearLayout>
+
+    <!-- Loading overlay (tampil saat init, disembunyikan setelah dunia jadi) -->
+    <LinearLayout
+        android:id="@+id/loading_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#000000">
+
+        <ProgressBar
+            android:layout_width="56dp"
+            android:layout_height="56dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Memuat dunia..."
+            android:textColor="@color/hud_text"
+            android:textSize="15sp" />
     </LinearLayout>
 </FrameLayout>
