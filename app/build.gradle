@@ -1,7 +1,8 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
 }
+
+configurations { natives }
 
 android {
     namespace 'com.hozinking.touring3d'
@@ -11,8 +12,8 @@ android {
         applicationId "com.hozinking.touring3d"
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName "1.4"
+        versionCode 7
+        versionName "2.0"
     }
 
     buildTypes {
@@ -23,25 +24,51 @@ android {
             minifyEnabled false
         }
     }
-    buildFeatures {
-        buildConfig true
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libs']
+        }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = '17'
-    }
-    // Filament membawa .so per ABI; jangan strip
-    packaging {
-        jniLibs { useLegacyPackaging = false }
-    }
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    // Mesin render 3D Google — ringan untuk mobile
-    implementation 'com.google.android.filament:filament-android:1.74.0'
+    implementation 'com.badlogicgames.gdx:gdx:1.12.1'
+    implementation 'com.badlogicgames.gdx:gdx-backend-android:1.12.1'
+    natives 'com.badlogicgames.gdx:gdx-platform:1.12.1:natives-armeabi-v7a'
+    natives 'com.badlogicgames.gdx:gdx-platform:1.12.1:natives-arm64-v8a'
+    natives 'com.badlogicgames.gdx:gdx-platform:1.12.1:natives-x86_64'
 }
+
+// Pola resmi libGDX: ekstrak libgdx.so dari gdx-platform ke libs/<abi>/
+task copyAndroidNatives {
+    doFirst {
+        file("libs/armeabi-v7a/").mkdirs()
+        file("libs/arm64-v8a/").mkdirs()
+        file("libs/x86_64/").mkdirs()
+        configurations.natives.files.each { jar ->
+            def outputDir = null
+            if (jar.name.endsWith("natives-armeabi-v7a.jar")) outputDir = file("libs/armeabi-v7a/")
+            if (jar.name.endsWith("natives-arm64-v8a.jar")) outputDir = file("libs/arm64-v8a/")
+            if (jar.name.endsWith("natives-x86_64.jar")) outputDir = file("libs/x86_64/")
+            if (outputDir != null) {
+                copy {
+                    from zipTree(jar)
+                    into outputDir
+                    include "*.so"
+                }
+            }
+        }
+    }
+}
+tasks.whenTaskAdded { t ->
+    if (t.name.contains("package")) {
+        t.dependsOn 'copyAndroidNatives'
+    }
+}
+preBuild.dependsOn copyAndroidNatives

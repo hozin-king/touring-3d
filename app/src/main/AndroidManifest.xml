@@ -10,10 +10,10 @@
         android:theme="@style/Theme.Touring3D"
         android:supportsRtl="true">
         <activity
-            android:name=".MainActivity"
+            android:name=".AndroidLauncher"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
