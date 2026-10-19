@@ -30,3 +30,4 @@ Native `libgdx.so` diambil dari `gdx-platform` via task `copyAndroidNatives`
   - Checkpoint: "Game success alert"
 - **Musik**: "Carefree" — Kevin MacLeod, [incompetech.com](https://incompetech.com) — CC BY 4.0
 - **Tekstur**: [ambientcg.com](https://ambientcg.com) — CC0 (Asphalt007, Grass005)
+- **Teknik render**: `ModelCache` + `DirectionalShadowLight` (pola [jsjolund/GdxDemo3D](https://github.com/jsjolund/GdxDemo3D) — Apache 2.0); pemisahan geometri statis/dinamis ala [mbrlabs/Mundus](https://github.com/mbrlabs/Mundus) — Apache 2.0

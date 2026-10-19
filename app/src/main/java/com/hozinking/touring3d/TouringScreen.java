@@ -13,7 +13,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g3d.Environment;
 import com.badlogic.gdx.graphics.g3d.ModelBatch;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
-import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
+import com.badlogic.gdx.graphics.g3d.environment.DirectionalShadowLight;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
@@ -52,6 +52,7 @@ public class TouringScreen implements Screen, InputProcessor {
     private Bike bike;
     private Preferences prefs;
     private AudioMan audio;
+    private final Vector3 shadowCenter = new Vector3(); // pusat shadow map mengikuti motor
 
     private final boolean[] visited = new boolean[3];
     private int nextCp = 0;
@@ -107,7 +108,10 @@ public class TouringScreen implements Screen, InputProcessor {
             "MUSIK: Carefree - Kevin MacLeod",
             "incompetech.com (CC BY 4.0)",
             "TEKSTUR: ambientcg.com (CC0)",
-            "- Asphalt007, Grass005"
+            "- Asphalt007, Grass005",
+            "RENDER: pola ModelCache & bayangan",
+            "dari GdxDemo3D/jsjolund (Apache 2.0),",
+            "organisasi scene ala Mundus (Apache 2.0)"
     };
 
     public TouringScreen(TouringGame game) {
@@ -135,10 +139,14 @@ public class TouringScreen implements Screen, InputProcessor {
 
         environment = new Environment();
         environment.set(new ColorAttribute(ColorAttribute.AmbientLight, 0.55f, 0.55f, 0.55f, 1f));
-        environment.add(new DirectionalLight().set(Color.WHITE, new Vector3(-0.4f, -1f, -0.25f)));
 
         world = new GameWorld();
         world.build();
+        // Matahari + bayangan real-time (pola GdxDemo3D/jsjolund, Apache 2.0)
+        DirectionalShadowLight sun = world.getShadowLight();
+        environment.add(sun);
+        environment.shadowMap = sun;
+
         bike = new Bike();
         bike.buildModel();
         bike.reset(world.startX, world.startZ, world.startHeading);
@@ -166,6 +174,11 @@ public class TouringScreen implements Screen, InputProcessor {
         Gdx.gl.glViewport(0, 0, W, H);
         Gdx.gl.glClearColor(0.52f, 0.80f, 0.96f, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
+
+        // Depth pass bayangan dulu (pola GdxDemo3D), baru render utama
+        bike.applyTransforms();
+        shadowCenter.set(bike.x, 0f, bike.z);
+        world.renderShadows(shadowCenter, camera.direction, bike.getInstances());
 
         modelBatch.begin(camera);
         world.render(modelBatch, environment);

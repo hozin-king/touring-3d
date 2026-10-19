@@ -173,10 +173,24 @@ public class Bike {
         return bikeMatrix;
     }
 
-    public void render(ModelBatch batch, Environment env) {
+    /** Set transform tiap part dari posisi/heading motor (dipakai render & shadow). */
+    public void applyTransforms() {
         Matrix4 m = computeMatrix();
         for (Part p : parts) {
             p.instance.transform.set(m).mul(p.local);
+        }
+    }
+
+    /** Instance part motor untuk shadow pass (panggil applyTransforms dulu). */
+    public List<ModelInstance> getInstances() {
+        List<ModelInstance> out = new ArrayList<ModelInstance>(parts.size());
+        for (Part p : parts) out.add(p.instance);
+        return out;
+    }
+
+    public void render(ModelBatch batch, Environment env) {
+        applyTransforms();
+        for (Part p : parts) {
             batch.render(p.instance, env);
         }
     }

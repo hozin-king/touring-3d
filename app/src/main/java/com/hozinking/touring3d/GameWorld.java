@@ -9,9 +9,12 @@ import com.badlogic.gdx.graphics.g3d.Environment;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.Model;
 import com.badlogic.gdx.graphics.g3d.ModelBatch;
+import com.badlogic.gdx.graphics.g3d.ModelCache;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute;
+import com.badlogic.gdx.graphics.g3d.environment.DirectionalShadowLight;
+import com.badlogic.gdx.graphics.g3d.utils.DepthShaderProvider;
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder.VertexInfo;
@@ -63,6 +66,14 @@ public class GameWorld {
     private final ModelInstance[] rings = new ModelInstance[4]; // 3 spot + start
     private final Material[] ringMats = new Material[4];
     private final ModelInstance[] ringPosts = new ModelInstance[4];
+    // Organisasi scene ala Mundus (mbrlabs, Apache 2.0): geometri statis
+    // di-bake SEKALI ke ModelCache (pola GdxDemo3D/jsjolund, Apache 2.0) jadi
+    // render loop hanya ~50 draw call, bukan ~600. Yang dinamis (laut, awan,
+    // ring) digambar terpisah.
+    private ModelCache modelCache;
+    private ModelInstance seaInstance;
+    private DirectionalShadowLight shadowLight;
+    private ModelBatch shadowBatch;
 
     // Tekstur CC0 (ambientcg.com): aspal jalan + rumput.
     private Texture texRoad;
@@ -150,6 +161,20 @@ public class GameWorld {
         addSign("WARUNG", -51f, 89f);
         addSign("VIEW POINT", -52f, -91f);
         addSign("START", startX + 7f, startZ);
+
+        // Bake SEMUA geometri statis ke ModelCache (pola GdxDemo3D): material
+        // yang sama digabung jadi satu mesh -> render loop jadi puluhan draw
+        // call, bukan ratusan.
+        modelCache = new ModelCache();
+        modelCache.begin();
+        for (ModelInstance inst : statics) modelCache.add(inst);
+        modelCache.end();
+
+        // Matahari + bayangan real-time (pola GdxDemo3D): shadow map 1024,
+        // kotak ortho 60 m mengikuti motor.
+        shadowLight = new DirectionalShadowLight(1024, 1024, 60f, 60f, 1f, 160f);
+        shadowLight.set(new Color(0.85f, 0.85f, 0.85f, 1f), new Vector3(-0.55f, -1f, 0.35f));
+        shadowBatch = new ModelBatch(new DepthShaderProvider());
     }
 
     /** Laut: box raksasa dengan material tersimpan agar warnanya bisa dianimasikan. */
@@ -160,7 +185,7 @@ public class GameWorld {
         models.add(model);
         ModelInstance inst = new ModelInstance(model);
         inst.transform.setToTranslation(0f, -1.45f, 0f);
-        statics.add(inst);
+        seaInstance = inst; // dinamis (animasi warna) -> tidak masuk cache
     }
 
     /** Satu sisi quad dengan UV tiling. */
@@ -351,6 +376,8 @@ public class GameWorld {
             Cloud c = new Cloud();
             c.a = addBox(cx, cy, cz, s * 1.8f, s * 0.5f, s, c1, 0f);
             c.b = addBox(cx + s * 0.5f, cy + s * 0.2f, cz, s, s * 0.4f, s * 0.8f, c2, 0f);
+            statics.remove(c.a); // awan bergerak -> dinamis, tidak masuk cache
+            statics.remove(c.b);
             c.ax = cx;
             c.ay = cy;
             c.az = cz;
@@ -390,6 +417,27 @@ public class GameWorld {
         addCollider(x, z, 0.8f);
     }
 
+    /** Matahari untuk bayangan real-time (didaftarkan ke Environment pemanggil). */
+    public DirectionalShadowLight getShadowLight() {
+        return shadowLight;
+    }
+
+    /**
+     * Depth pass bayangan ala GdxDemo3D: kamera ortho 60m mengikuti motor.
+     * center = posisi motor (y=0), forward = arah kamera utama,
+     * extra = instance dinamis lain yang ikut membuang bayangan (motor).
+     */
+    public void renderShadows(Vector3 center, Vector3 forward, List<ModelInstance> extra) {
+        shadowLight.begin(center, forward);
+        shadowBatch.begin(shadowLight.getCamera());
+        shadowBatch.render(modelCache);
+        if (extra != null) {
+            for (ModelInstance inst : extra) shadowBatch.render(inst);
+        }
+        shadowBatch.end();
+        shadowLight.end();
+    }
+
     /** Ring checkpoint mengambang + tiang cahaya. Satu material agar mudah diwarnai ulang. */
     private void addRing(int idx, float x, float z, Color c) {
         Material mat = new Material(ColorAttribute.createDiffuse(c));
@@ -412,7 +460,7 @@ public class GameWorld {
         Model model = mb.end();
         models.add(model);
         ModelInstance inst = new ModelInstance(model);
-        statics.add(inst);
+        // ring warnanya dinamis (denyut target) -> digambar manual via rings[], bukan cache
         // tiang cahaya tipis di tengah ring
         ModelInstance post = addBox(x, 0.8f, z, 0.5f, 1.6f, 0.5f, new Color(c.r, c.g, c.b, 1f), 0f);
         statics.remove(post); // digambar manual lewat ringPosts
@@ -510,14 +558,22 @@ public class GameWorld {
     }
 
     public void render(ModelBatch batch, Environment env) {
-        for (ModelInstance inst : statics) batch.render(inst, env);
-        for (int i = 0; i < 4; i++) {
+        batch.render(modelCache, env); // seluruh dunia statis: 1 provider
+        batch.render(seaInstance, env); // laut (animasi warna)
+        for (Cloud c : clouds) { // awan (bergerak)
+            batch.render(c.a, env);
+            batch.render(c.b, env);
+        }
+        for (int i = 0; i < 4; i++) { // ring + tiang (warna dinamis)
             batch.render(rings[i], env);
             batch.render(ringPosts[i], env);
         }
     }
 
     public void dispose() {
+        if (modelCache != null) modelCache.dispose();
+        if (shadowBatch != null) shadowBatch.dispose();
+        if (shadowLight != null) shadowLight.dispose();
         for (Model m : models) m.dispose();
         models.clear();
         for (Texture t : signTextures) t.dispose();
