@@ -19,25 +19,31 @@ import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
 
 /**
- * Layar utama Touring 3D: state MENU -> COUNTDOWN -> RIDING -> FINISHED.
- * Kontrol: joystick kiri (belok), tombol GAS/REM kanan bawah,
+ * Layar utama Touring 3D v2.1: MENU -> COUNTDOWN -> RIDING -> FINISHED.
+ * Kontrol: joystick kiri (belok), tombol GAS/REM kanan bawah (multitouch),
  * drag area kanan (selain tombol) untuk orbit kamera.
- * Semua UI digambar manual (ShapeRenderer + BitmapFont), full multitouch.
+ * Checkpoint BERURUTAN: POM -> WARUNG -> VIEW POINT.
+ * Semua UI digambar manual (ShapeRenderer + BitmapFont).
+ * Catatan: BitmapFont bawaan tak punya glyph emoji -> teks polos saja.
  */
 public class TouringScreen implements Screen, InputProcessor {
 
-    private static final String VERSION_LABEL = "v2.0 (7)";
+    private static final String VERSION_LABEL = "v2.1 (8)";
 
     private enum State {MENU, COUNTDOWN, RIDING, FINISHED}
 
+    private enum MenuTab {MAIN, HELP, CREDITS}
+
     private final TouringGame game;
     private State state = State.MENU;
+    private MenuTab menuTab = MenuTab.MAIN;
 
     private ModelBatch modelBatch;
     private SpriteBatch spriteBatch;
     private ShapeRenderer shapes;
     private BitmapFont font;
     private BitmapFont bigFont;
+    private BitmapFont speedFont;
     private final GlyphLayout layout = new GlyphLayout();
 
     private PerspectiveCamera camera;
@@ -45,9 +51,11 @@ public class TouringScreen implements Screen, InputProcessor {
     private GameWorld world;
     private Bike bike;
     private Preferences prefs;
+    private AudioMan audio;
 
     private final boolean[] visited = new boolean[3];
-    private float rideTime, countdownT;
+    private int nextCp = 0;
+    private float rideTime, countdownT, timeAcc;
     private String lastCountdown = "";
     private boolean isTrial;
     private String menuBest = "";
@@ -62,8 +70,13 @@ public class TouringScreen implements Screen, InputProcessor {
     private int joyPointer = -1, lookPointer = -1, gasPointer = -1, brakePointer = -1;
     private float joyBaseX, joyDX;
     private float orbitYaw, orbitPitch, lookLastX, lookLastY;
-    private float camX, camZ;
+    private float camX, camY, camZ;
     private float orbitA;
+
+    // game feel: FOV kick + camera shake
+    private float fov = 45f;
+    private float shake = 0f;
+    private float crashCd = 0f;
 
     private int W, H;
     // metrik UI (koordinat y-up, px)
@@ -71,6 +84,31 @@ public class TouringScreen implements Screen, InputProcessor {
     private float gasCX, gasCY, gasR, brakeCX, brakeCY, brakeR;
     private float tourBX, tourBY, tourBW, tourBH;
     private float trialBX, trialBY, trialBW, trialBH;
+    private float helpBX, helpBY, helpBW, helpBH;
+    private float credBX, credBY, credBW, credBH;
+    private float backBX, backBY, backBW, backBH;
+
+    private static final String[] HELP_LINES = {
+            "Joystick kiri: belok",
+            "Tombol GAS (hijau) / REM (merah) - bisa bareng belok",
+            "Geser area kanan layar: putar kamera",
+            "Kunjungi POM -> WARUNG -> VIEW POINT berurutan,",
+            "secepat mungkin! Ring target berdenyut kuning.",
+            "Tabrakan bikin melambat. Hati-hati!"
+    };
+
+    private static final String[] CREDIT_LINES = {
+            "SUARA: Mixkit (mixkit.co) - Mixkit License",
+            "- Mesin: Motorcycle engine working",
+            "- Klik: Classic click",
+            "- Tabrakan: Factory metal hard hit",
+            "- Hitung mundur: Positive interface beep",
+            "- Checkpoint: Game success alert",
+            "MUSIK: Carefree - Kevin MacLeod",
+            "incompetech.com (CC BY 4.0)",
+            "TEKSTUR: ambientcg.com (CC0)",
+            "- Asphalt007, Grass005"
+    };
 
     public TouringScreen(TouringGame game) {
         this.game = game;
@@ -87,6 +125,9 @@ public class TouringScreen implements Screen, InputProcessor {
         bigFont = new BitmapFont();
         bigFont.getData().setScale(5f);
         bigFont.setColor(Color.YELLOW);
+        speedFont = new BitmapFont();
+        speedFont.getData().setScale(4f);
+        speedFont.setColor(Color.WHITE);
 
         camera = new PerspectiveCamera(45f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         camera.near = 0.5f;
@@ -102,6 +143,11 @@ public class TouringScreen implements Screen, InputProcessor {
         bike.buildModel();
         bike.reset(world.startX, world.startZ, world.startHeading);
 
+        audio = new AudioMan();
+        audio.load();
+        audio.musicPlay();
+        audio.engineStart(); // idle di menu
+
         prefs = Gdx.app.getPreferences("touring3d");
         Gdx.input.setInputProcessor(this);
         resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
@@ -113,7 +159,9 @@ public class TouringScreen implements Screen, InputProcessor {
     @Override
     public void render(float delta) {
         float dt = Math.min(delta, 0.05f);
+        timeAcc += dt;
         update(dt);
+        world.animate(dt, timeAcc);
 
         Gdx.gl.glViewport(0, 0, W, H);
         Gdx.gl.glClearColor(0.52f, 0.80f, 0.96f, 1f);
@@ -129,6 +177,7 @@ public class TouringScreen implements Screen, InputProcessor {
 
     private void update(float dt) {
         if (toastT > 0) toastT -= dt;
+        if (crashCd > 0) crashCd -= dt;
         switch (state) {
             case MENU:
                 orbitA += dt * 0.08f;
@@ -137,14 +186,21 @@ public class TouringScreen implements Screen, InputProcessor {
                         (float) Math.sin(orbitA) * 170f);
                 camera.lookAt(0f, 0f, 0f);
                 camera.up.set(Vector3.Y);
+                camera.fieldOfView = 45f;
                 camera.update();
+                audio.engineUpdate(0f, false); // idle
+                audio.musicRide(false);
                 break;
             case COUNTDOWN:
                 countdownT += dt;
                 String label = countdownT < 1f ? "3"
                         : countdownT < 2f ? "2"
                         : countdownT < 3f ? "1" : "GAS!";
-                lastCountdown = label;
+                if (!label.equals(lastCountdown)) {
+                    lastCountdown = label;
+                    audio.beep(label.equals("GAS!") ? 1.6f : 1.0f);
+                }
+                audio.engineUpdate(0.12f, true); // geber tipis
                 updateCamera(dt);
                 if (countdownT >= 3.4f) {
                     state = State.RIDING;
@@ -154,56 +210,77 @@ public class TouringScreen implements Screen, InputProcessor {
             case RIDING:
                 rideTime += dt;
                 bike.update(dt, steer, gas, brake, world.colliders);
+                // Feedback tabrakan: suara + getar + camera shake.
+                if (bike.impact > 0.25f && crashCd <= 0f) {
+                    audio.crash(dt);
+                    Gdx.input.vibrate(70);
+                    shake = Math.min(1f, bike.impact);
+                    crashCd = 0.5f;
+                }
+                audio.engineUpdate(bike.speed01(), gas);
+                audio.musicRide(true);
                 checkSpots();
-                if (visited[0] && visited[1] && visited[2]) finish();
+                if (nextCp >= 3) finish();
                 updateCamera(dt);
                 break;
             case FINISHED:
+                audio.engineUpdate(0f, false);
+                audio.musicRide(false);
                 updateCamera(dt);
                 break;
         }
     }
 
     private void updateCamera(float dt) {
+        float s01 = bike.speed01();
         float fx = (float) Math.sin(bike.heading);
         float fz = (float) Math.cos(bike.heading);
-        float tx = bike.x - fx * 8f;
-        float tz = bike.z - fz * 8f;
-        float k = Math.min(1f, 5f * dt);
+        // Kamera mundur sedikit saat kencang (sense of speed).
+        float back = 8f + s01 * 2.5f;
+        float tx = bike.x - fx * back;
+        float tz = bike.z - fz * back;
+        float k = Math.min(1f, 4.5f * dt);
         camX += (tx - camX) * k;
         camZ += (tz - camZ) * k;
+        float ty = 3.6f + orbitPitch * 14f + s01 * 1.1f;
+        camY += (ty - camY) * Math.min(1f, 3.5f * dt);
         // orbit dari drag jari kanan
         float ox = camX - bike.x, oz = camZ - bike.z;
         float co = (float) Math.cos(orbitYaw), si = (float) Math.sin(orbitYaw);
         float rx = ox * co + oz * si;
         float rz = -ox * si + oz * co;
-        camera.position.set(bike.x + rx, 3.6f + orbitPitch * 14f, bike.z + rz);
+        // camera shake (tabrakan)
+        shake = Math.max(0f, shake - dt * 2.4f);
+        float shx = (float) (Math.random() - 0.5) * shake * 0.9f;
+        float shy = (float) (Math.random() - 0.5) * shake * 0.7f;
+        camera.position.set(bike.x + rx + shx, camY + shy, bike.z + rz);
         camera.lookAt(bike.x + fx * 5f, 1.4f, bike.z + fz * 5f);
         camera.up.set(Vector3.Y);
+        // FOV melebar halus seiring kecepatan
+        float fovT = 45f + s01 * 17f;
+        fov += (fovT - fov) * Math.min(1f, 2.8f * dt);
+        camera.fieldOfView = fov;
         camera.update();
     }
 
+    /** Checkpoint BERURUTAN: hanya target berikut yang bisa dikunjungi. */
     private void checkSpots() {
-        for (int i = 0; i < 3; i++) {
-            if (visited[i]) continue;
-            GameWorld.Spot s = world.spots.get(i);
-            float dx = bike.x - s.x, dz = bike.z - s.z;
-            if (dx * dx + dz * dz < 81f) { // radius 9
-                visited[i] = true;
-                world.setRingVisited(i);
-                toast(s.name + " dikunjungi! (" + countVisited() + "/3)");
-            }
+        if (nextCp >= 3) return;
+        GameWorld.Spot s = world.spots.get(nextCp);
+        float dx = bike.x - s.x, dz = bike.z - s.z;
+        if (dx * dx + dz * dz < 81f) { // radius 9
+            visited[nextCp] = true;
+            world.setRingVisited(nextCp);
+            audio.checkpoint();
+            toast(s.name + " dikunjungi! (" + (nextCp + 1) + "/3)");
+            nextCp++;
+            world.setTargetRing(nextCp < 3 ? nextCp : -1);
         }
-    }
-
-    private int countVisited() {
-        int n = 0;
-        for (boolean v : visited) if (v) n++;
-        return n;
     }
 
     private void finish() {
         state = State.FINISHED;
+        audio.checkpoint();
         String key = isTrial ? "best_trial" : "best_tour";
         float prev = prefs.getFloat(key, -1f);
         finishIsBest = prev < 0 || rideTime < prev;
@@ -224,14 +301,20 @@ public class TouringScreen implements Screen, InputProcessor {
     // ------------------------------------------------------------------ API
 
     public void startGame(boolean trial) {
+        audio.click();
         isTrial = trial;
         bike.reset(world.startX, world.startZ, world.startHeading);
         for (int i = 0; i < 3; i++) visited[i] = false;
+        nextCp = 0;
         world.resetRings();
+        world.setTargetRing(0);
         float fx = (float) Math.sin(world.startHeading);
         float fz = (float) Math.cos(world.startHeading);
         camX = world.startX - fx * 8f;
         camZ = world.startZ - fz * 8f;
+        camY = 3.6f;
+        fov = 45f;
+        shake = 0f;
         rideTime = 0f;
         countdownT = 0f;
         lastCountdown = "";
@@ -242,8 +325,10 @@ public class TouringScreen implements Screen, InputProcessor {
     }
 
     public void backToMenu() {
+        audio.click();
         clearInputs();
         state = State.MENU;
+        menuTab = MenuTab.MAIN;
         showMenuBest();
     }
 
@@ -279,6 +364,7 @@ public class TouringScreen implements Screen, InputProcessor {
         if (state == State.RIDING || state == State.COUNTDOWN) {
             drawControls();
             drawHud();
+            drawMinimap();
         }
         if (state == State.COUNTDOWN && !lastCountdown.isEmpty()) {
             spriteBatch.begin();
@@ -304,9 +390,9 @@ public class TouringScreen implements Screen, InputProcessor {
         shapes.setColor(0.7f, 0.7f, 0.7f, 1f);
         shapes.circle(joyCX + joyDX * joyR * 0.55f, joyCY, 45f);
         // tombol REM & GAS kanan bawah
-        shapes.setColor(0.78f, 0.16f, 0.16f, 1f);
+        shapes.setColor(gas ? 0.95f : 0.78f, 0.16f, 0.16f, 1f);
         shapes.circle(brakeCX, brakeCY, brakeR);
-        shapes.setColor(0.18f, 0.49f, 0.20f, 1f);
+        shapes.setColor(0.18f, brake ? 0.75f : 0.49f, 0.20f, 1f);
         shapes.circle(gasCX, gasCY, gasR);
         shapes.end();
 
@@ -320,37 +406,136 @@ public class TouringScreen implements Screen, InputProcessor {
 
     private void drawHud() {
         spriteBatch.begin();
-        font.draw(spriteBatch, bike.speedKmh() + " km/h", 24f, H - 30f);
-        String cp = "CP " + countVisited() + "/3";
-        layout.setText(font, cp);
-        font.draw(spriteBatch, cp, W - layout.width - 24f, H - 30f);
+        // speedometer besar kiri atas
+        String spd = String.valueOf(bike.speedKmh());
+        layout.setText(speedFont, spd);
+        speedFont.draw(spriteBatch, layout, 24f, H - 40f);
+        layout.setText(font, "km/h");
+        font.draw(spriteBatch, layout, 24f + layout.width + 70f, H - 48f);
+        // timer tengah atas
         String t = fmtTime(rideTime);
         layout.setText(font, t);
         font.draw(spriteBatch, t, W / 2f - layout.width / 2f, H - 30f);
+        // target checkpoint di bawah timer
+        if (nextCp < 3) {
+            String tg = "TARGET: " + world.spots.get(nextCp).name + " (" + (nextCp + 1) + "/3)";
+            layout.setText(font, tg);
+            font.draw(spriteBatch, tg, W / 2f - layout.width / 2f, H - 80f);
+        } else {
+            layout.setText(font, "FINISH!");
+            font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H - 80f);
+        }
         spriteBatch.end();
     }
 
+    /** Minimap lingkaran: jalan, checkpoint, posisi + arah motor. */
+    private void drawMinimap() {
+        float mx = W - 135f, my = H - 185f, mr = 105f;
+        float sc = mr / 175f; // dunia +-175 -> radius peta
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.04f, 0.06f, 0.10f, 0.80f);
+        shapes.circle(mx, my, mr);
+        // jalan melingkar
+        shapes.setColor(0.42f, 0.42f, 0.46f, 1f);
+        int n = 48;
+        float px = 0f, py = 0f;
+        for (int i = 0; i <= n; i++) {
+            float a = (float) (i / (float) n * 2f * Math.PI);
+            float x = mx + (float) Math.cos(a) * 94f * sc;
+            float y = my + (float) Math.sin(a) * 94f * sc;
+            if (i > 0) shapes.rectLine(px, py, x, y, 7f);
+            px = x;
+            py = y;
+        }
+        // checkpoint: hijau = sudah, kuning denyut = target, abu = nanti
+        for (int i = 0; i < 3; i++) {
+            GameWorld.Spot s = world.spots.get(i);
+            float sx = mx + s.x * sc, sy = my + s.z * sc;
+            if (visited[i]) shapes.setColor(0.2f, 0.85f, 0.3f, 1f);
+            else if (i == nextCp) {
+                float p = 0.65f + 0.35f * (float) Math.sin(timeAcc * 5.2f);
+                shapes.setColor(1f, 0.72f * p + 0.28f, 0.15f, 1f);
+            } else shapes.setColor(0.45f, 0.45f, 0.48f, 1f);
+            shapes.circle(sx, sy, 9f);
+        }
+        // start putih
+        shapes.setColor(0.95f, 0.95f, 0.95f, 1f);
+        shapes.circle(mx + world.startX * sc, my + world.startZ * sc, 6f);
+        // motor: titik + garis arah
+        float bx = mx + bike.x * sc, by = my + bike.z * sc;
+        float hx = (float) Math.sin(bike.heading), hz = (float) Math.cos(bike.heading);
+        shapes.setColor(1f, 0.25f, 0.25f, 1f);
+        shapes.rectLine(bx, by, bx + hx * 20f, by + hz * 20f, 4f);
+        shapes.setColor(1f, 1f, 1f, 1f);
+        shapes.circle(bx, by, 7f);
+        shapes.end();
+    }
+
     private void drawMenu() {
+        if (menuTab == MenuTab.HELP) {
+            drawOverlay("CARA MAIN", HELP_LINES);
+            return;
+        }
+        if (menuTab == MenuTab.CREDITS) {
+            drawOverlay("KREDIT ASET", CREDIT_LINES);
+            return;
+        }
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.18f, 0.49f, 0.20f, 1f);
         shapes.rect(tourBX, tourBY, tourBW, tourBH);
         shapes.setColor(0.13f, 0.35f, 0.65f, 1f);
         shapes.rect(trialBX, trialBY, trialBW, trialBH);
+        shapes.setColor(0.30f, 0.30f, 0.34f, 1f);
+        shapes.rect(helpBX, helpBY, helpBW, helpBH);
+        shapes.rect(credBX, credBY, credBW, credBH);
         shapes.end();
 
         spriteBatch.begin();
         layout.setText(bigFont, "TOURING 3D");
-        bigFont.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H * 0.74f);
+        bigFont.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H * 0.80f);
+        layout.setText(font, "Touring motor keliling pulau - full offline");
+        font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H * 0.70f);
         if (!menuBest.isEmpty()) {
             layout.setText(font, menuBest);
-            font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H * 0.60f);
+            font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, H * 0.63f);
         }
-        layout.setText(font, "MULAI TOUR");
-        font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, tourBY + tourBH / 2f + layout.height / 2f);
-        layout.setText(font, "TIME TRIAL");
-        font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, trialBY + trialBH / 2f + layout.height / 2f);
+        drawButtonLabel("MULAI TOUR", tourBX, tourBY, tourBW, tourBH);
+        drawButtonLabel("TIME TRIAL", trialBX, trialBY, trialBW, trialBH);
+        drawButtonLabel("CARA MAIN", helpBX, helpBY, helpBW, helpBH);
+        drawButtonLabel("KREDIT", credBX, credBY, credBW, credBH);
         layout.setText(font, VERSION_LABEL);
         font.draw(spriteBatch, layout, W - layout.width - 16f, 40f);
+        spriteBatch.end();
+    }
+
+    private void drawButtonLabel(String text, float bx, float by, float bw, float bh) {
+        layout.setText(font, text);
+        font.draw(spriteBatch, layout, bx + bw / 2f - layout.width / 2f, by + bh / 2f + layout.height / 2f);
+    }
+
+    /** Panel overlay (cara main / kredit) + tombol KEMBALI. */
+    private void drawOverlay(String title, String[] lines) {
+        float pw = 1000f, ph = 120f + lines.length * 52f;
+        float px = W / 2f - pw / 2f, py = H / 2f - ph / 2f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.55f);
+        shapes.rect(0, 0, W, H);
+        shapes.setColor(0.07f, 0.09f, 0.13f, 1f);
+        shapes.rect(px, py, pw, ph);
+        shapes.setColor(0.30f, 0.30f, 0.34f, 1f);
+        shapes.rect(backBX, backBY, backBW, backBH);
+        shapes.end();
+
+        spriteBatch.begin();
+        layout.setText(bigFont, title);
+        bigFont.draw(spriteBatch, layout, W / 2f - layout.width / 2f, py + ph - 60f);
+        float y = py + ph - 150f;
+        for (String line : lines) {
+            layout.setText(font, line);
+            font.draw(spriteBatch, layout, W / 2f - layout.width / 2f, y);
+            y -= 52f;
+        }
+        drawButtonLabel("KEMBALI", backBX, backBY, backBW, backBH);
         spriteBatch.end();
     }
 
@@ -394,8 +579,22 @@ public class TouringScreen implements Screen, InputProcessor {
         float x = screenX;
         float y = H - screenY; // ke y-up
         if (state == State.MENU) {
+            if (menuTab != MenuTab.MAIN) {
+                if (inRect(x, y, backBX, backBY, backBW, backBH)) {
+                    menuTab = MenuTab.MAIN;
+                    audio.click();
+                }
+                return true;
+            }
             if (inRect(x, y, tourBX, tourBY, tourBW, tourBH)) startGame(false);
             else if (inRect(x, y, trialBX, trialBY, trialBW, trialBH)) startGame(true);
+            else if (inRect(x, y, helpBX, helpBY, helpBW, helpBH)) {
+                menuTab = MenuTab.HELP;
+                audio.click();
+            } else if (inRect(x, y, credBX, credBY, credBW, credBH)) {
+                menuTab = MenuTab.CREDITS;
+                audio.click();
+            }
             return true;
         }
         if (state == State.FINISHED) {
@@ -525,19 +724,39 @@ public class TouringScreen implements Screen, InputProcessor {
         tourBW = 440f;
         tourBH = 110f;
         tourBX = W / 2f - tourBW / 2f;
-        tourBY = H * 0.42f - tourBH / 2f;
+        tourBY = H * 0.44f - tourBH / 2f;
         trialBW = 440f;
         trialBH = 110f;
         trialBX = W / 2f - trialBW / 2f;
-        trialBY = H * 0.27f - trialBH / 2f;
+        trialBY = H * 0.29f - trialBH / 2f;
+        helpBW = 300f;
+        helpBH = 80f;
+        helpBX = W / 2f - helpBW - 15f;
+        helpBY = H * 0.13f - helpBH / 2f;
+        credBW = 300f;
+        credBH = 80f;
+        credBX = W / 2f + 15f;
+        credBY = H * 0.13f - credBH / 2f;
+        backBW = 360f;
+        backBH = 90f;
+        backBX = W / 2f - backBW / 2f;
+        backBY = H / 2f - 330f;
     }
 
     @Override
     public void pause() {
+        if (audio != null) {
+            audio.musicPause();
+            audio.engineStop();
+        }
     }
 
     @Override
     public void resume() {
+        if (audio != null) {
+            audio.musicPlay();
+            if (state != State.FINISHED) audio.engineStart();
+        }
     }
 
     @Override
@@ -546,11 +765,13 @@ public class TouringScreen implements Screen, InputProcessor {
 
     @Override
     public void dispose() {
+        if (audio != null) audio.dispose();
         if (modelBatch != null) modelBatch.dispose();
         if (spriteBatch != null) spriteBatch.dispose();
         if (shapes != null) shapes.dispose();
         if (font != null) font.dispose();
         if (bigFont != null) bigFont.dispose();
+        if (speedFont != null) speedFont.dispose();
         if (world != null) world.dispose();
         if (bike != null) bike.dispose();
     }

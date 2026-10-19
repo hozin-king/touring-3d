@@ -19,12 +19,19 @@ import java.util.List;
  * Motor + fisika arcade: gas/rem/belok, tabrakan lingkaran sederhana.
  * Model low-poly menghadap +Z, dibangun dari banyak part (satu ModelInstance
  * per part dengan offset lokal — tanpa node hierarchy agar simpel).
+ *
+ * Tuning arcade (v2.1): akselerasi progresif (kencang di awal, melandai di
+ * top speed), rem kuat, belok sensitif di pelan & stabil di kencang.
  */
 public class Bike {
     public float x = 0f;
     public float z = 0f;
     public float heading = 0f;
     public float speed = 0f;
+    /** 0..1 — kekuatan tabrakan terakhir, meluruh sendiri. Untuk shake+suara. */
+    public float impact = 0f;
+
+    public static final float MAX_SPEED = 33f; // ~119 km/h
 
     private float leanVisual = 0f;
 
@@ -42,25 +49,28 @@ public class Bike {
         z = z0;
         heading = h0;
         speed = 0f;
+        impact = 0f;
         leanVisual = 0f;
     }
 
     public void update(float dt, float steer, boolean gas, boolean brake, List<GameWorld.Collider> colliders) {
-        final float maxSpeed = 30f; // ~108 km/h
-        if (gas) speed += 9.5f * dt;
-        if (brake) speed -= 22f * dt;
-        // hambatan + perlambatan alami
-        speed -= speed * 0.45f * dt;
-        if (!gas) speed -= 1.2f * dt;
-        speed = Math.max(0f, Math.min(maxSpeed, speed));
+        // Akselerasi progresif: jambakan kuat di awal, melandai menuju top speed.
+        if (gas) speed += (16f * (1f - speed / MAX_SPEED * 0.72f)) * dt;
+        if (brake) speed -= 30f * dt;
+        // Hambatan udara + perlambatan alami.
+        speed -= speed * 0.35f * dt;
+        if (!gas) speed -= 2.0f * dt;
+        speed = Math.max(0f, Math.min(MAX_SPEED, speed));
 
-        float authority = Math.max(0f, Math.min(1f, speed / 8f));
-        heading += steer * 2.1f * authority * dt;
+        // Belok: otoritas penuh di pelan, diredam di kencang agar stabil.
+        float lowAuth = Math.max(0f, Math.min(1f, speed / 6f));
+        float highDamp = 1f - 0.5f * (speed / MAX_SPEED);
+        heading += steer * 2.7f * lowAuth * highDamp * dt;
 
         x += (float) Math.sin(heading) * speed * dt;
         z += (float) Math.cos(heading) * speed * dt;
 
-        // tabrakan: dorong keluar lingkaran collider
+        // Tabrakan: dorong keluar lingkaran collider, catat impact.
         for (GameWorld.Collider c : colliders) {
             float dx = x - c.x;
             float dz = z - c.z;
@@ -69,22 +79,30 @@ public class Bike {
             if (d < minD && d > 0.0001f) {
                 x = c.x + dx / d * minD;
                 z = c.z + dz / d * minD;
-                speed *= 0.55f;
+                impact = Math.max(impact, Math.max(0f, Math.min(1f, speed / MAX_SPEED)));
+                speed *= 0.45f;
             }
         }
-        // batas pulau
+        // Batas pulau
         float r = (float) Math.sqrt(x * x + z * z);
         if (r > 165f) {
             x *= 165f / r;
             z *= 165f / r;
+            impact = Math.max(impact, 0.35f);
             speed *= 0.7f;
         }
+        impact = Math.max(0f, impact - dt * 1.8f);
 
-        leanVisual += (steer * authority - leanVisual) * Math.min(1f, 8f * dt);
+        leanVisual += (steer * lowAuth - leanVisual) * Math.min(1f, 8f * dt);
     }
 
     public int speedKmh() {
         return (int) (speed * 3.6f);
+    }
+
+    /** 0..1 untuk FOV kick & audio. */
+    public float speed01() {
+        return Math.max(0f, Math.min(1f, speed / MAX_SPEED));
     }
 
     /** Bangun semua part motor. Dipanggil sekali di GL thread. */

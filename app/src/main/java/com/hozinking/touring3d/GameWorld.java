@@ -1,5 +1,6 @@
 package com.hozinking.touring3d;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.Texture;
@@ -61,6 +62,26 @@ public class GameWorld {
     private final List<ModelInstance> statics = new ArrayList<ModelInstance>();
     private final ModelInstance[] rings = new ModelInstance[4]; // 3 spot + start
     private final Material[] ringMats = new Material[4];
+    private final ModelInstance[] ringPosts = new ModelInstance[4];
+
+    // Tekstur CC0 (ambientcg.com): aspal jalan + rumput.
+    private Texture texRoad;
+    private Texture texGrass;
+    // Material laut (dianimasikan) + awan (bergerak).
+    private Material seaMat;
+    private final List<Cloud> clouds = new ArrayList<Cloud>();
+    // Ring checkpoint yang jadi target berikut (berdenyut); -1 = tak ada.
+    private int targetRing = 0;
+
+    private static class Cloud {
+        ModelInstance a, b;
+        float ax, ay, az, bx, by, bz, speed;
+
+        void apply() {
+            a.transform.setToTranslation(ax, ay, az);
+            b.transform.setToTranslation(bx, by, bz);
+        }
+    }
 
     private final Color ringAmber = new Color(1f, 0.72f, 0.15f, 1f);
     private final Color ringWhite = new Color(0.95f, 0.95f, 0.95f, 1f);
@@ -78,18 +99,29 @@ public class GameWorld {
 
     /** Bangun seluruh geometri. Dipanggil sekali di GL thread. */
     public void build() {
-        // Laut, pantai, rumput (box tipis, sisi atas di y target)
-        addBox(0f, -1.45f, 0f, 1600f, 0.5f, 1600f, new Color(0.16f, 0.47f, 0.75f, 1f), 0f); // laut
-        addBox(0f, -0.30f, 0f, 420f, 0.5f, 420f, new Color(0.87f, 0.76f, 0.55f, 1f), 0f); // pasir
-        addBox(0f, -0.25f, 0f, 340f, 0.5f, 340f, new Color(0.36f, 0.66f, 0.33f, 1f), 0f); // rumput
+        // Tekstur CC0 (ambientcg.com). Mipmap agar tidak berkilau dari jauh.
+        texRoad = new Texture(Gdx.files.internal("tex/asphalt.jpg"), true);
+        texRoad.setWrap(Texture.TextureWrap.MirroredRepeat, Texture.TextureWrap.MirroredRepeat);
+        texRoad.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
+        texGrass = new Texture(Gdx.files.internal("tex/grass.jpg"), true);
+        texGrass.setWrap(Texture.TextureWrap.MirroredRepeat, Texture.TextureWrap.MirroredRepeat);
+        texGrass.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
 
-        // Jalan melingkar r=88..100 -> 72 segmen box
-        Color road = new Color(0.24f, 0.24f, 0.27f, 1f);
+        // Laut (material disimpan untuk animasi), pantai, rumput bertekstur
+        buildSea();
+        addBox(0f, -0.30f, 0f, 420f, 0.5f, 420f, new Color(0.87f, 0.76f, 0.55f, 1f), 0f); // pasir
+        addTexturedBox(0f, -0.25f, 0f, 340f, 0.5f, 340f, texGrass, 30f, 0f); // rumput
+
+        // Jalan melingkar r=88..100 -> 72 segmen, SATU model bertekstur dipakai ulang
+        Model roadModel = texturedBox(12f, 0.08f, 8.8f, texRoad, 6f);
         for (int i = 0; i < 72; i++) {
             float a = (float) (i / 72f * 2f * Math.PI);
             float cx = (float) Math.cos(a) * 94f;
             float cz = (float) Math.sin(a) * 94f;
-            addBox(cx, 0.03f, cz, 12f, 0.08f, 8.8f, road, (float) Math.toDegrees(-a));
+            ModelInstance inst = new ModelInstance(roadModel);
+            inst.transform.set(new Matrix4().setToRotation(Vector3.Y, (float) Math.toDegrees(-a))
+                    .trn(cx, 0.03f, cz));
+            statics.add(inst);
         }
         // Marka tengah putus-putus
         Color lineWhite = new Color(0.95f, 0.95f, 0.9f, 1f);
@@ -118,6 +150,66 @@ public class GameWorld {
         addSign("WARUNG", -51f, 89f);
         addSign("VIEW POINT", -52f, -91f);
         addSign("START", startX + 7f, startZ);
+    }
+
+    /** Laut: box raksasa dengan material tersimpan agar warnanya bisa dianimasikan. */
+    private void buildSea() {
+        seaMat = new Material(ColorAttribute.createDiffuse(new Color(0.16f, 0.47f, 0.75f, 1f)));
+        ModelBuilder mb = new ModelBuilder();
+        Model model = mb.createBox(1600f, 0.5f, 1600f, seaMat, Usage.Position | Usage.Normal);
+        models.add(model);
+        ModelInstance inst = new ModelInstance(model);
+        inst.transform.setToTranslation(0f, -1.45f, 0f);
+        statics.add(inst);
+    }
+
+    /** Satu sisi quad dengan UV tiling. */
+    private void face(MeshPartBuilder mpb,
+                      float x1, float y1, float z1, float x2, float y2, float z2,
+                      float x3, float y3, float z3, float x4, float y4, float z4,
+                      float nx, float ny, float nz, float uRep, float vRep) {
+        VertexInfo a = new VertexInfo().setPos(x1, y1, z1).setNor(nx, ny, nz).setUV(0f, 0f);
+        VertexInfo b = new VertexInfo().setPos(x2, y2, z2).setNor(nx, ny, nz).setUV(uRep, 0f);
+        VertexInfo c = new VertexInfo().setPos(x3, y3, z3).setNor(nx, ny, nz).setUV(uRep, vRep);
+        VertexInfo d = new VertexInfo().setPos(x4, y4, z4).setNor(nx, ny, nz).setUV(0f, vRep);
+        mpb.rect(a, b, c, d);
+    }
+
+    /**
+     * Box bertekstur dengan UV tiling: tekstur diulang tiap `tile` meter.
+     * Model didaftarkan ke `models` agar ikut di-dispose.
+     */
+    private Model texturedBox(float w, float h, float d, Texture tex, float tile) {
+        float hw = w / 2f, hh = h / 2f, hd = d / 2f;
+        ModelBuilder mb = new ModelBuilder();
+        mb.begin();
+        MeshPartBuilder mpb = mb.part("tbox", GL20.GL_TRIANGLES,
+                Usage.Position | Usage.Normal | Usage.TextureCoordinates,
+                new Material(TextureAttribute.createDiffuse(tex)));
+        face(mpb, -hw, hh, -hd, hw, hh, -hd, hw, hh, hd, -hw, hh, hd,
+                0f, 1f, 0f, w / tile, d / tile); // atas
+        face(mpb, -hw, -hh, hd, hw, -hh, hd, hw, -hh, -hd, -hw, -hh, -hd,
+                0f, -1f, 0f, w / tile, d / tile); // bawah
+        face(mpb, -hw, -hh, hd, hw, -hh, hd, hw, hh, hd, -hw, hh, hd,
+                0f, 0f, 1f, w / tile, h / tile); // depan
+        face(mpb, hw, -hh, -hd, -hw, -hh, -hd, -hw, hh, -hd, hw, hh, -hd,
+                0f, 0f, -1f, w / tile, h / tile); // belakang
+        face(mpb, hw, -hh, hd, hw, -hh, -hd, hw, hh, -hd, hw, hh, hd,
+                1f, 0f, 0f, d / tile, h / tile); // kanan
+        face(mpb, -hw, -hh, -hd, -hw, -hh, hd, -hw, hh, hd, -hw, hh, -hd,
+                -1f, 0f, 0f, d / tile, h / tile); // kiri
+        Model model = mb.end();
+        models.add(model);
+        return model;
+    }
+
+    /** Box bertekstur sekali pakai (untuk rumput). */
+    private ModelInstance addTexturedBox(float x, float y, float z, float w, float h, float d,
+                                        Texture tex, float tile, float yawDeg) {
+        ModelInstance inst = new ModelInstance(texturedBox(w, h, d, tex, tile));
+        inst.transform.set(new Matrix4().setToRotation(Vector3.Y, yawDeg).trn(x, y, z));
+        statics.add(inst);
+        return inst;
     }
 
     private void buildKampung() {
@@ -256,8 +348,17 @@ public class GameWorld {
             float cz = (rnd.nextFloat() - 0.5f) * 500f;
             float cy = 45f + rnd.nextFloat() * 25f;
             float s = 10f + rnd.nextFloat() * 10f;
-            addBox(cx, cy, cz, s * 1.8f, s * 0.5f, s, c1, 0f);
-            addBox(cx + s * 0.5f, cy + s * 0.2f, cz, s, s * 0.4f, s * 0.8f, c2, 0f);
+            Cloud c = new Cloud();
+            c.a = addBox(cx, cy, cz, s * 1.8f, s * 0.5f, s, c1, 0f);
+            c.b = addBox(cx + s * 0.5f, cy + s * 0.2f, cz, s, s * 0.4f, s * 0.8f, c2, 0f);
+            c.ax = cx;
+            c.ay = cy;
+            c.az = cz;
+            c.bx = cx + s * 0.5f;
+            c.by = cy + s * 0.2f;
+            c.bz = cz;
+            c.speed = 1.2f + rnd.nextFloat() * 1.6f;
+            clouds.add(c);
         }
     }
 
@@ -320,8 +421,6 @@ public class GameWorld {
         ringPosts[idx] = post;
     }
 
-    private final ModelInstance[] ringPosts = new ModelInstance[4];
-
     /** Tandai ring sudah dikunjungi (hijau). */
     public void setRingVisited(int idx) {
         ringMats[idx].set(ColorAttribute.createDiffuse(ringGreen));
@@ -335,6 +434,39 @@ public class GameWorld {
             Color c = (i < 3) ? ringAmber : ringWhite;
             ringMats[i].set(ColorAttribute.createDiffuse(c));
             ringPosts[i].materials.get(0).set(ColorAttribute.createDiffuse(c));
+        }
+        targetRing = 0;
+    }
+
+    /** Ring checkpoint target berikut (berdenyut). -1 = tak ada target. */
+    public void setTargetRing(int idx) {
+        targetRing = idx;
+    }
+
+    /**
+     * Animasi dunia: laut berdenyut halus, awan melayang, ring target berdenyut.
+     * Murah: hanya ubah warna material + translasi, tanpa rebuild geometri.
+     */
+    public void animate(float dt, float t) {
+        // Laut: kecerahan berdenyut halus
+        float b = 0.93f + 0.07f * (float) Math.sin(t * 0.9f);
+        seaMat.set(ColorAttribute.createDiffuse(0.16f * b, 0.47f * b, 0.75f * b));
+        // Awan melayang ke +x, bungkus di ±320
+        for (Cloud c : clouds) {
+            float dx = c.speed * dt;
+            c.ax += dx;
+            c.bx += dx;
+            if (c.ax > 320f) {
+                c.ax -= 640f;
+                c.bx -= 640f;
+            }
+            c.apply();
+        }
+        // Ring target berdenyut amber
+        if (targetRing >= 0 && targetRing < 3) {
+            float p = 0.70f + 0.42f * (float) Math.sin(t * 5.2f);
+            ringMats[targetRing].set(ColorAttribute.createDiffuse(
+                    ringAmber.r * p, ringAmber.g * p, ringAmber.b * p));
         }
     }
 
@@ -390,5 +522,9 @@ public class GameWorld {
         models.clear();
         for (Texture t : signTextures) t.dispose();
         signTextures.clear();
+        if (texRoad != null) texRoad.dispose();
+        if (texGrass != null) texGrass.dispose();
+        texRoad = null;
+        texGrass = null;
     }
 }

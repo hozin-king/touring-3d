@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Full offline: tanpa izin internet sama sekali -->
+    <!-- VIBRATE: feedback getar saat tabrakan (normal permission, tanpa prompt) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
