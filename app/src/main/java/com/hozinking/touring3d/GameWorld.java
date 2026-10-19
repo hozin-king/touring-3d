@@ -450,7 +450,7 @@ public class GameWorld {
     public void animate(float dt, float t) {
         // Laut: kecerahan berdenyut halus
         float b = 0.93f + 0.07f * (float) Math.sin(t * 0.9f);
-        seaMat.set(ColorAttribute.createDiffuse(0.16f * b, 0.47f * b, 0.75f * b));
+        seaMat.set(ColorAttribute.createDiffuse(0.16f * b, 0.47f * b, 0.75f * b, 1f));
         // Awan melayang ke +x, bungkus di ±320
         for (Cloud c : clouds) {
             float dx = c.speed * dt;
@@ -466,7 +466,7 @@ public class GameWorld {
         if (targetRing >= 0 && targetRing < 3) {
             float p = 0.70f + 0.42f * (float) Math.sin(t * 5.2f);
             ringMats[targetRing].set(ColorAttribute.createDiffuse(
-                    ringAmber.r * p, ringAmber.g * p, ringAmber.b * p));
+                    ringAmber.r * p, ringAmber.g * p, ringAmber.b * p, 1f));
         }
     }
 
