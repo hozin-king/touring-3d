@@ -17,15 +17,35 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Android SDK sudah preinstalled di ubuntu-latest runner
+      - name: Install Android SDK packages
+        run: |
+          if command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER=sdkmanager
+          elif [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          else
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          GRADLE_BIN=$(ls /opt/hostedtoolcache/gradle/*/x64/bin/gradle 2>/dev/null | sort -V | tail -1)
+          if [ -n "$GRADLE_BIN" ]; then
+            echo "Using cached Gradle: $GRADLE_BIN"
+            "$GRADLE_BIN" assembleDebug --stacktrace --no-daemon
+          else
+            echo "No cached Gradle found, falling back to wrapper"
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Touring3D-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
